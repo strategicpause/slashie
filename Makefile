@@ -1,7 +1,6 @@
 default: release
 
-SHELL=/bin/bash
-TEST_COVERAGE_THRESHOLD=88.7
+TEST_COVERAGE_THRESHOLD=91.6
 
 fmt:
 	@echo "Running go fmt"
@@ -10,7 +9,7 @@ fmt:
 lint:
 	@if [ ! -d /tmp/golangci-lint ]; then \
 		echo "Installing golangci-lint"; \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin v1.45.2; \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin v1.50.1; \
 		mkdir -p /tmp/golangci-lint/; \
 		mv ./bin/golangci-lint /tmp/golangci-lint/golangci-lint; \
 	fi; \
@@ -21,15 +20,16 @@ tidy:
 	@go mod tidy
 
 test:
-	@echo "Running go test"
-	@go test -race  ./...
+	@echo "Running tests"
+	@go test -race --tags=integ ./...
 
 coverage:
 	@TEST_COVERAGE=$$(go test  -coverpkg ./... | grep coverage | grep -Eo '[0-9]+\.[0-9]+') ;\
 	if [ $$(bc <<< "$$TEST_COVERAGE < $(TEST_COVERAGE_THRESHOLD)") -eq 1 ]; then \
 		echo "Current test coverage $$TEST_COVERAGE is below threshold of $(TEST_COVERAGE_THRESHOLD)." ;\
 		exit 1 ;\
-	fi
+	fi; \
+	echo "Current test coverage of $$TEST_COVERAGE%."
 
 release: fmt lint tidy test coverage
 	@echo "Build Successful."

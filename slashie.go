@@ -1,15 +1,13 @@
 package slashie
 
 import (
-	"errors"
 	"fmt"
 	"github.com/strategicpause/slashie/actor"
+	"github.com/strategicpause/slashie/logger"
 	"github.com/strategicpause/slashie/transition"
-	"sync"
 )
 
 const (
-	UnknownStatus      = actor.Status("UNKNOWN")
 	DefaultMailboxSize = 100
 )
 
@@ -17,32 +15,21 @@ type slashie struct {
 	actorRegistry      actor.Registry
 	actorStatusManager actor.StatusManager
 	transitionManager  transition.Manager
-	mailbox            chan func()
+	logger             logger.Logger
+	mailbox            actor.Mailbox
 }
 
 type Opt func(s *slashie)
 
-func WithActorRegistry(registry actor.Registry) Opt {
-	return func(s *slashie) {
-		s.actorRegistry = registry
-	}
-}
-
-func WithActorStatusManager(manager actor.StatusManager) Opt {
-	return func(s *slashie) {
-		s.actorStatusManager = manager
-	}
-}
-
-func WithTransitionManager(manager transition.Manager) Opt {
-	return func(s *slashie) {
-		s.transitionManager = manager
-	}
-}
-
 func WithMailboxSize(size int) Opt {
 	return func(s *slashie) {
-		s.mailbox = make(chan func(), size)
+		s.mailbox = make(actor.Mailbox, size)
+	}
+}
+
+func WithLogger(l logger.Logger) Opt {
+	return func(s *slashie) {
+		s.logger = l
 	}
 }
 
@@ -63,8 +50,11 @@ func NewSlashie(opts ...Opt) Slashie {
 	if s.transitionManager == nil {
 		s.transitionManager = transition.NewManager()
 	}
+	if s.logger == nil {
+		s.logger = logger.NewNullOutputLogger()
+	}
 	if s.mailbox == nil {
-		s.mailbox = make(chan func(), DefaultMailboxSize)
+		s.mailbox = make(actor.Mailbox, DefaultMailboxSize)
 	}
 
 	go s.init()
@@ -73,11 +63,8 @@ func NewSlashie(opts ...Opt) Slashie {
 }
 
 func (s *slashie) init() {
-	for {
-		select {
-		case msg := <-s.mailbox:
-			msg()
-		}
+	for msg := range s.mailbox {
+		msg()
 	}
 }
 
@@ -92,100 +79,141 @@ func (s *slashie) UpdateStatus(a actor.Actor, status actor.Status) error {
 	errChan := make(chan error)
 	s.mailbox <- func() {
 		defer close(errChan)
-		actorKey, ok := s.actorRegistry.GetActorKey(a)
-		if !ok {
-			errChan <- errors.New("unknown actor")
+
+		actorKey := a.GetKey()
+		if ok := s.actorRegistry.IsRegistered(a); !ok {
+			errChan <- fmt.Errorf("unknown actor %s", actorKey)
+			return
 		}
-		s.updateStatus(actorKey, status)
+
+		errChan <- s.updateStatus(actorKey, status)
 	}
 	return <-errChan
 }
 
-func (s *slashie) updateStatus(actorKey actor.Key, desiredStatus actor.Status) {
-	// Check to see if this is a legal transition
+func (s *slashie) updateStatus(actorKey actor.Key, desiredStatus actor.Status) error {
+	currentDesiredStatus := s.actorStatusManager.GetDesiredStatus(actorKey)
+	if currentDesiredStatus == desiredStatus {
+		s.logger.Debugf("%s desired status is already set to %s. Skipping update.", actorKey, desiredStatus)
+		return nil
+	}
+	currentKnownStatus := s.actorStatusManager.GetKnownStatus(actorKey)
+	// Check to see if the current actor is already undergoing a transition. If so, then let's revisit this later.
+	if currentDesiredStatus != currentKnownStatus {
+		s.mailbox <- func() {
+			s.logger.Debugf("%s is already transition from %s to %s. Deferring update.", actorKey, currentKnownStatus, currentDesiredStatus)
+			if err := s.updateStatus(actorKey, desiredStatus); err != nil {
+				s.logger.Debugf("%s", err)
+			}
+		}
+		return nil
+	}
+
+	// Is this transition valid?
+	ok := s.transitionManager.IsValidTransition(actorKey, currentDesiredStatus, desiredStatus)
+	if !ok {
+		return fmt.Errorf("transitioning from %s to %s is an illegal transition for actor %s", currentDesiredStatus, desiredStatus, actorKey)
+	}
+
+	s.logger.Debugf("Setting %s desired status to %s", actorKey, desiredStatus)
 	s.actorStatusManager.SetDesiredStatus(actorKey, desiredStatus)
 
+	s.mailbox <- func() {
+		s.performTransition(actorKey)
+	}
+
+	return nil
+}
+
+func (s *slashie) performTransition(actorKey actor.Key) {
+	desiredStatus := s.actorStatusManager.GetDesiredStatus(actorKey)
 	// This will check to see if the current actor has any dependencies that it must wait for to transition.
 	// If so, then this will block the current actor from transitioning to its desired status.
-	hasDependencies := s.transitionManager.CanTransitionToStatus(actorKey, desiredStatus)
+	hasDependencies := s.transitionManager.HasTransitionDependencies(actorKey, desiredStatus)
 	if hasDependencies {
+		s.logger.Debugf("%s has a transition dependencies to %s", actorKey, desiredStatus)
 		return
 	}
 
-	// If we get this far, then we must first execute all callbacks before we can transition from the currentStatus
-	// to the desiredStatus.
-	currentStatus := s.actorStatusManager.GetKnownStatus(actorKey)
-	callbacks := s.transitionManager.GetTransitionCallbacks(actorKey, currentStatus, desiredStatus)
-	a := s.actorRegistry.GetActor(actorKey)
-
-	// Prepare a channel which will capture any errors returned by the callback functions.
-	numCallbacks := len(callbacks)
-	errs := make(chan error, numCallbacks)
-	// Prepare a WaitGroup which will block until all the callback functions are done executing.
-	wg := sync.WaitGroup{}
-	wg.Add(numCallbacks)
-
-	// Execute callback functions by sending it to the current actor's mailbox (via Notify).
-	for _, callback := range callbacks {
-		cb := func() {
-			errs <- callback()
-			wg.Done()
-		}
-		a.Notify(cb)
+	a, ok := s.actorRegistry.GetActor(actorKey)
+	if !ok {
+		s.logger.Debugf("could not find actor for %s", actorKey)
+		return
 	}
 
-	// This will wait until all callbacks are done executing before updating the known status
-	go func() {
-		wg.Wait()
-		close(errs)
-		s.mailbox <- func() {
-			// If there were no errors from the transition callbacks, then we're able to transition to the
-			// desiredStatus. Otherwise, we will transition to the terminalStatus.
-			newStatus := desiredStatus
-			for err := range errs {
-				if err != nil {
+	knownStatus := s.actorStatusManager.GetKnownStatus(actorKey)
+	// If we get this far, then we must first execute all actions before we can transition from the knownStatus
+	// to the desiredStatus.
+	s.logger.Debugf("Starting transition for %s: %s -> %s", actorKey, knownStatus, desiredStatus)
+	s.transitionManager.StartTransition(actorKey, knownStatus, desiredStatus, func(action transition.Action) {
+		a.Notify(func() {
+			err := action()
+			s.completeAction(actorKey, err)
+		})
+	})
+}
+
+func (s *slashie) completeAction(actorKey actor.Key, result error) {
+	s.mailbox <- func() {
+		s.transitionManager.CompleteTransitionAction(actorKey, result, func(results chan error) {
+			newStatus := s.actorStatusManager.GetDesiredStatus(actorKey)
+			for r := range results {
+				if r != nil {
+					s.logger.Debugf("%s", r)
 					newStatus = s.actorStatusManager.GetTerminalStatus(actorKey)
 					break
 				}
 			}
 			s.updateKnownStatus(actorKey, newStatus)
-		}
-	}()
+		})
+	}
 }
 
 func (s *slashie) updateKnownStatus(actorKey actor.Key, newStatus actor.Status) {
+	s.logger.Debugf("Setting known status for %s to %s.", actorKey, newStatus)
 	s.actorStatusManager.SetKnownStatus(actorKey, newStatus)
 	// Now that the given actor has transitioned to the new status, we can execute any subscriptions that are waiting
 	// for the actor to transition.
 	subscriptions := s.transitionManager.GetSubscriptionsForStatus(actorKey, newStatus)
-	numSubscriptions := len(subscriptions)
-	if numSubscriptions > 0 {
-		for _, subscription := range subscriptions {
-			subscription()
-		}
+	s.logger.Debugf("Found %d subscriptions for %s transitioning to %s.", len(subscriptions), actorKey, newStatus)
+	for _, subscription := range subscriptions {
+		subscription()
 	}
+	s.transitionManager.ClearSubscriptionsForStatus(actorKey, newStatus)
 	// Notify all dependencies that the current actor transitioned to the new status. This might result in other actors
 	// transitioning to their destination status.
-	s.transitionManager.NotifyDependenciesOfStatus(actorKey, newStatus, func(depKey actor.Key, depStatus actor.Status) {
+	depsToNotify := s.transitionManager.GetDependenciesForStatus(actorKey, newStatus)
+	s.transitionManager.ClearDependenciesForStatus(actorKey, newStatus)
+	for _, depToNotify := range depsToNotify {
 		s.mailbox <- func() {
-			s.updateStatus(depKey, depStatus)
+			s.logger.Debugf("Notifying %s.", depToNotify)
+			s.performTransition(depToNotify)
 		}
-	})
+	}
+
+	terminalStatus := s.actorStatusManager.GetTerminalStatus(actorKey)
+	if newStatus == terminalStatus {
+		if a, ok := s.actorRegistry.GetActor(actorKey); ok {
+			s.logger.Debugf("Stopping %s", actorKey)
+			a.Stop()
+		}
+	}
 }
 
 func (s *slashie) AddTransitionDependency(srcActor actor.Actor, srcStatus actor.Status, depActor actor.Actor, depStatus actor.Status) error {
 	errChan := make(chan error)
 	s.mailbox <- func() {
 		defer close(errChan)
-		srcKey, ok := s.actorRegistry.GetActorKey(srcActor)
-		if !ok {
-			errChan <- errors.New("unknown source actor")
+
+		srcKey := srcActor.GetKey()
+		if ok := s.actorRegistry.IsRegistered(srcActor); !ok {
+			errChan <- fmt.Errorf("unknown actor %s", srcKey)
 			return
 		}
 
-		depKey, ok := s.actorRegistry.GetActorKey(depActor)
-		if !ok {
-			errChan <- errors.New("unknown dependent actor")
+		depKey := depActor.GetKey()
+		if ok := s.actorRegistry.IsRegistered(depActor); !ok {
+			errChan <- fmt.Errorf("unknown actor %s", depKey)
 			return
 		}
 
@@ -194,9 +222,9 @@ func (s *slashie) AddTransitionDependency(srcActor actor.Actor, srcStatus actor.
 	return <-errChan
 }
 
-func (s *slashie) AddTransitionCallbacks(actor actor.Actor, tuples []*transition.CalbackTuple) error {
-	for _, tuple := range tuples {
-		err := s.AddTransitionCallback(actor, tuple.SrcStatus, tuple.DestStatus, tuple.Callback)
+func (s *slashie) AddTransitionActions(actor actor.Actor, actions []*transition.TransitionAction) error {
+	for _, action := range actions {
+		err := s.AddTransitionAction(actor, action.SrcStatus, action.DestStatus, action.Action)
 		if err != nil {
 			return err
 		}
@@ -204,22 +232,19 @@ func (s *slashie) AddTransitionCallbacks(actor actor.Actor, tuples []*transition
 	return nil
 }
 
-func (s *slashie) AddTransitionCallback(actor actor.Actor, srcStatus actor.Status, destStatus actor.Status, callback transition.Callback) error {
+func (s *slashie) AddTransitionAction(a actor.Actor, srcStatus actor.Status, destStatus actor.Status, action transition.Action) error {
 	errChan := make(chan error)
 	s.mailbox <- func() {
 		defer close(errChan)
-		actorKey, ok := s.actorRegistry.GetActorKey(actor)
-		if !ok {
-			errChan <- errors.New("unknown actor")
-			return
-		}
+		actorKey := a.GetKey()
 
 		isValid := s.actorStatusManager.IsValidTransitionStatus(actorKey, srcStatus, destStatus)
 		if !isValid {
 			errChan <- fmt.Errorf("cannot transition from %s to %s", srcStatus, destStatus)
 			return
 		}
-		s.transitionManager.AddTransitionCallback(actorKey, srcStatus, destStatus, callback)
+		s.logger.Debugf("Adding transaction action for %s for %s -> %s.", actorKey, srcStatus, destStatus)
+		s.transitionManager.AddTransitionAction(actorKey, srcStatus, destStatus, action)
 	}
 	return <-errChan
 }
@@ -228,26 +253,19 @@ func (s *slashie) GetStatus(a actor.Actor) actor.Status {
 	responseChan := make(chan actor.Status)
 	s.mailbox <- func() {
 		defer close(responseChan)
-		actorKey, ok := s.actorRegistry.GetActorKey(a)
-		if !ok {
-			responseChan <- UnknownStatus
-			return
-		}
+
+		actorKey := a.GetKey()
 		responseChan <- s.actorStatusManager.GetKnownStatus(actorKey)
 	}
 	return <-responseChan
 }
 
-func (s *slashie) Subscribe(actor actor.Actor, status actor.Status, callback transition.Subscription) error {
+func (s *slashie) Subscribe(a actor.Actor, status actor.Status, callback transition.Subscription) error {
 	errChan := make(chan error)
 	s.mailbox <- func() {
 		defer close(errChan)
-		actorKey, ok := s.actorRegistry.GetActorKey(actor)
-		if !ok {
-			errChan <- errors.New("unknown actor")
-			return
-		}
 
+		actorKey := a.GetKey()
 		isValid := s.actorStatusManager.IsValidSubscriptionStatus(actorKey, status)
 		if !isValid {
 			errChan <- fmt.Errorf("cannot subscribe to current status %s", status)

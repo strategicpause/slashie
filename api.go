@@ -13,11 +13,11 @@ type Slashie interface {
 	// AddTransitionDependency will add a dependency on the srcActor transitioning to srcStatus until destActor
 	// transitions to destStatus.
 	AddTransitionDependency(srcActor actor.Actor, srcStatus actor.Status, depActor actor.Actor, depStatus actor.Status) error
-	// AddTransitionCallback will register a callback function which will be called before the given actor
+	// AddTransitionAction will register a callback function which will be called before the given actor
 	// transitions from srcStatus to destStatus.
-	AddTransitionCallback(actor actor.Actor, srcStatus actor.Status, destStatus actor.Status, callback transition.Callback) error
-	// AddTransitionCallbacks registers multiple transition callbacks for a given Actor.
-	AddTransitionCallbacks(actor actor.Actor, transitionCallbacks []*transition.CalbackTuple) error
+	AddTransitionAction(actor actor.Actor, srcStatus actor.Status, destStatus actor.Status, callback transition.Action) error
+	// AddTransitionActions registers multiple transition callbacks for a given Actor.
+	AddTransitionActions(actor actor.Actor, transitionCallbacks []*transition.TransitionAction) error
 	// UpdateStatus indicates that the given actor wants to transition to the desiredStatus. Once all of an actor's
 	// dependencies have reached their desired state, then transition callbacks will be called for that actor. Upon
 	// successful completion of transition callbacks, then the actor will successfully move to the desired status.

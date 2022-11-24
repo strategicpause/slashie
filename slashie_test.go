@@ -22,8 +22,14 @@ func TestAddTransitionDependency(t *testing.T) {
 	depActor := NewBasicActor("DependentActor", "ActorB", tm)
 	tm.AddActor(depActor, NoneStatus, StoppedStatus)
 
+	// Setup basic dependencies from NONE -> READY for each actor.
+	err := tm.AddTransitionAction(srcActor, NoneStatus, ReadyStatus, func() error { return nil })
+	assert.NoError(t, err)
+	err = tm.AddTransitionAction(depActor, NoneStatus, ReadyStatus, func() error { return nil })
+	assert.NoError(t, err)
+
 	// ActorA cannot transition to READY until ActorB first transitions to READY.
-	err := tm.AddTransitionDependency(srcActor, ReadyStatus, depActor, ReadyStatus)
+	err = tm.AddTransitionDependency(srcActor, ReadyStatus, depActor, ReadyStatus)
 	assert.NoError(t, err)
 	// Update the status of ActorA to be READY
 	err = tm.UpdateStatus(srcActor, ReadyStatus)
@@ -53,15 +59,10 @@ func TestAddTransitionDependency(t *testing.T) {
 	assert.Equal(t, ReadyStatus, srcStatus)
 }
 
-func NewBasicActor(actorType actor.Type, actorId actor.Id, tm Slashie) actor.Actor {
-	basicActor := &actor.BasicActor{
-		Type:    actorType,
-		Id:      actorId,
-		Mailbox: make(chan func(), 10),
-	}
-	go basicActor.Init()
+func NewBasicActor(actorType actor.Type, actorId actor.Id, s Slashie) actor.Actor {
+	basicActor := actor.NewBasicActor(actorType, actorId)
 
-	tm.AddActor(basicActor, NoneStatus, StoppedStatus)
+	s.AddActor(basicActor, NoneStatus, StoppedStatus)
 
 	return basicActor
 }
@@ -77,7 +78,7 @@ func TestAddTransitionCallback(t *testing.T) {
 
 		return nil
 	}
-	err := tm.AddTransitionCallback(basicActor, NoneStatus, ReadyStatus, callback)
+	err := tm.AddTransitionAction(basicActor, NoneStatus, ReadyStatus, callback)
 	assert.NoError(t, err)
 
 	err = tm.UpdateStatus(basicActor, ReadyStatus)
@@ -91,9 +92,12 @@ func TestUpdateStatus_NoTransitionCallback(t *testing.T) {
 	tm := NewSlashie()
 	basicActor := NewBasicActor("Actor", "ActorA", tm)
 
+	err := tm.AddTransitionAction(basicActor, NoneStatus, ReadyStatus, func() error { return nil })
+	assert.NoError(t, err)
+
 	wg := sync.WaitGroup{}
 	// Add a subscription, so  that we can wait
-	err := tm.Subscribe(basicActor, ReadyStatus, func() {
+	err = tm.Subscribe(basicActor, ReadyStatus, func() {
 		wg.Done()
 	})
 	assert.NoError(t, err)
@@ -109,10 +113,7 @@ func TestUpdateStatus_NoTransitionCallback(t *testing.T) {
 
 func TestUpdateStatus_UnknownActor(t *testing.T) {
 	tm := NewSlashie()
-	basicActor := &actor.BasicActor{
-		Type: "actor",
-		Id:   "id",
-	}
+	basicActor := actor.NewBasicActor("actor", "id")
 
 	err := tm.UpdateStatus(basicActor, ReadyStatus)
 
@@ -141,7 +142,7 @@ func TestTransitionError(t *testing.T) {
 	tm := NewSlashie()
 	basicActor := NewBasicActor("Actor", "ActorA", tm)
 
-	err := tm.AddTransitionCallback(basicActor, NoneStatus, ReadyStatus, func() error {
+	err := tm.AddTransitionAction(basicActor, NoneStatus, ReadyStatus, func() error {
 		return errors.New("failed to transition")
 	})
 	assert.NoError(t, err)
@@ -162,15 +163,12 @@ func TestTransitionError(t *testing.T) {
 }
 
 func TestAddTransitionDependency_UnknownSourceActor(t *testing.T) {
-	tm := NewSlashie()
+	s := NewSlashie()
 
-	srcActor := &actor.BasicActor{
-		Type: "Actor",
-		Id:   "src",
-	}
-	depActor := NewBasicActor("Actor", "dep", tm)
+	srcActor := actor.NewBasicActor("Actor", "src")
+	depActor := NewBasicActor("Actor", "dep", s)
 
-	err := tm.AddTransitionDependency(srcActor, ReadyStatus, depActor, ReadyStatus)
+	err := s.AddTransitionDependency(srcActor, ReadyStatus, depActor, ReadyStatus)
 	assert.Error(t, err)
 }
 
@@ -178,16 +176,14 @@ func TestAddTransitionDependency_UnknownDependentActor(t *testing.T) {
 	tm := NewSlashie()
 
 	srcActor := NewBasicActor("Actor", "src", tm)
-	depActor := &actor.BasicActor{
-		Type: "Actor",
-		Id:   "dep",
-	}
+	depActor := actor.NewBasicActor("Actor", "dep")
 
 	err := tm.AddTransitionDependency(srcActor, ReadyStatus, depActor, ReadyStatus)
 	assert.Error(t, err)
 }
 
-// Verify that the code can catch circular dependencies between the same actor
+// Verify that the code can catch circular dependencies between the same actor:
+// ActorA -> ActorA
 func TestAddTransitionDependency_SameActorCircularDependency(t *testing.T) {
 	tm := NewSlashie()
 	actorA := NewBasicActor("Actor", "ActorA", tm)
@@ -196,7 +192,8 @@ func TestAddTransitionDependency_SameActorCircularDependency(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Verify that the code can catch circular dependencies between two actorMap
+// Verify that the code can catch circular dependencies between two actors:
+// ActorA -> ActorB -> ActorA
 func TestAddTransitionDependency_SimpleCircularDependency(t *testing.T) {
 	tm := NewSlashie()
 	actorA := NewBasicActor("Actor", "ActorA", tm)
@@ -209,7 +206,8 @@ func TestAddTransitionDependency_SimpleCircularDependency(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Verify that the code can catch circular dependencies between 3+ actorMap
+// Verify that the code can catch circular dependencies between 3+ actors:
+// ActorA -> ActorB -> ActorC -> ActorA
 func TestAddTransitionDependency_CircularDependency(t *testing.T) {
 	tm := NewSlashie()
 	actorA := NewBasicActor("Actor", "ActorA", tm)
@@ -226,7 +224,7 @@ func TestAddTransitionDependency_CircularDependency(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Verify that the code does result in a false positive when two actorMap have a dependency
+// Verify that the code does result in a false positive when two actors have a dependency
 // on the same actor. For example:
 //
 //	/ B \
@@ -259,7 +257,7 @@ func TestAddTransitionCallback_SameState(t *testing.T) {
 	tm := NewSlashie()
 	basicActor := NewBasicActor("Actor", "ActorA", tm)
 
-	err := tm.AddTransitionCallback(basicActor, ReadyStatus, ReadyStatus, func() error { return nil })
+	err := tm.AddTransitionAction(basicActor, ReadyStatus, ReadyStatus, func() error { return nil })
 	assert.Error(t, err)
 }
 
@@ -268,7 +266,7 @@ func TestAddTransitionCallback_StartState(t *testing.T) {
 	tm := NewSlashie()
 	basicActor := NewBasicActor("Actor", "ActorA", tm)
 
-	err := tm.AddTransitionCallback(basicActor, ReadyStatus, NoneStatus, func() error { return nil })
+	err := tm.AddTransitionAction(basicActor, ReadyStatus, NoneStatus, func() error { return nil })
 	assert.Error(t, err)
 }
 
@@ -277,6 +275,6 @@ func TestAddTransitionCallback_TermState(t *testing.T) {
 	tm := NewSlashie()
 	basicActor := NewBasicActor("Actor", "ActorA", tm)
 
-	err := tm.AddTransitionCallback(basicActor, StoppedStatus, NoneStatus, func() error { return nil })
+	err := tm.AddTransitionAction(basicActor, StoppedStatus, NoneStatus, func() error { return nil })
 	assert.Error(t, err)
 }

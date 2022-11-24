@@ -1,22 +1,28 @@
 package actor
 
-// Actor
+// Actor defines the operations expected that each actor implements.
 type Actor interface {
-	// GetType returns the type of Actor
+	// GetType returns the type of Actor.
 	GetType() Type
-	// GetId
+	// GetId returns the Id for an Actor. It is expected that Id is unique for a given Type of Actor.
 	GetId() Id
-	// Notify
-	Notify(callback func())
+	// GetKey will return the key for the given Actor
+	GetKey() Key
+	// Notify will send a message
+	Notify(message Message)
+	// Init
+	Init()
+	// Stop
+	Stop()
 }
 
 type Registry interface {
 	// RegisterActor will register an Actor and return the corresponding ActorKey.
 	RegisterActor(actor Actor) Key
-	// GetActorKey will return the key for the given Actor if it has been registered.
-	GetActorKey(actor Actor) (Key, bool)
 	// GetActor will return an Actor, if it exists, given an ActorKey.
-	GetActor(actorKey Key) Actor
+	GetActor(actorKey Key) (Actor, bool)
+	//
+	IsRegistered(actor Actor) bool
 }
 
 type StatusManager interface {

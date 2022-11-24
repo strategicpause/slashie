@@ -8,7 +8,7 @@ import (
 const (
 	ActorType = Type("Actor")
 	ActorId   = Id("ActorA")
-	ActorKey  = Key("Actor-ActorA")
+	ActorKey  = Key("Actor:ActorA")
 )
 
 func TestRegisterActor(t *testing.T) {
@@ -20,29 +20,20 @@ func TestRegisterActor(t *testing.T) {
 	assert.Equal(t, ActorKey, key)
 }
 
-func NewBasicActor(actorType Type, actorId Id) Actor {
-	return &BasicActor{
-		Type: actorType,
-		Id:   actorId,
-	}
-}
-
-func TestGetActorKey_Registered(t *testing.T) {
+func TestGetActor(t *testing.T) {
 	registry := NewRegistry()
 	actor := NewBasicActor(ActorType, ActorId)
 	actorKey := registry.RegisterActor(actor)
 
-	newActorKey, ok := registry.GetActorKey(actor)
-
-	assert.Equal(t, actorKey, newActorKey)
+	a, ok := registry.GetActor(actorKey)
 	assert.True(t, ok)
+	assert.Equal(t, actor, a)
 }
 
-func TestGetActorKey_NotRegistered(t *testing.T) {
+func TestGetActor_NotRegistered(t *testing.T) {
 	registry := NewRegistry()
-	actor := NewBasicActor(ActorType, ActorId)
 
-	actorKey, ok := registry.GetActorKey(actor)
-	assert.Equal(t, Key(""), actorKey)
+	a, ok := registry.GetActor("actor-Key")
 	assert.False(t, ok)
+	assert.Nil(t, a)
 }

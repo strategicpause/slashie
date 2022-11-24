@@ -13,28 +13,44 @@ type manager struct {
 	transitionDependenciesByActor map[actor.Key]Dependencies
 	// reverseDependencies
 	reverseDependencies map[actor.Key]map[actor.Status]map[actor.Key]actor.Status
-	// transitionCallbacksByActor
-	transitionCallbacksByActor map[actor.Key]CallbacksByStatus
+	// transitionActionsByActor
+	transitionActionsByActor map[actor.Key]ActionsByStatus
 	// subscriptionsForActor
-	subscriptionsForActor map[actor.Key]SubscriptionsByStatus
+	subscriptionsForActor  map[actor.Key]SubscriptionsByStatus
+	transitionsByActorChan map[actor.Key]chan error
 }
 
 func NewManager() Manager {
 	return &manager{
 		transitionDependenciesByActor: map[actor.Key]Dependencies{},
 		reverseDependencies:           map[actor.Key]map[actor.Status]map[actor.Key]actor.Status{},
-		transitionCallbacksByActor:    map[actor.Key]CallbacksByStatus{},
+		transitionActionsByActor:      map[actor.Key]ActionsByStatus{},
 		subscriptionsForActor:         map[actor.Key]SubscriptionsByStatus{},
+		transitionsByActorChan:        map[actor.Key]chan error{},
 	}
 }
 
-func (t *manager) CanTransitionToStatus(actorKey actor.Key, status actor.Status) bool {
+func (t *manager) IsValidTransition(actorKey actor.Key, srcStatus actor.Status, destStatus actor.Status) bool {
+	if _, ok := t.transitionActionsByActor[actorKey]; !ok {
+		return false
+	}
+	transitionCallbacks := t.transitionActionsByActor[actorKey]
+	if _, ok := transitionCallbacks[srcStatus]; !ok {
+		return false
+	}
+
+	_, ok := t.transitionActionsByActor[actorKey][srcStatus][destStatus]
+
+	return ok
+}
+
+func (t *manager) HasTransitionDependencies(actorKey actor.Key, status actor.Status) bool {
 	if _, ok := t.transitionDependenciesByActor[actorKey]; !ok {
-		t.transitionDependenciesByActor[actorKey] = Dependencies{}
+		return false
 	}
 	transitionDependencies := t.transitionDependenciesByActor[actorKey]
 	if _, ok := transitionDependencies[status]; !ok {
-		transitionDependencies[status] = map[actor.Key]actor.Status{}
+		return false
 	}
 	// There are still dependencies
 	if len(transitionDependencies[status]) > 0 {
@@ -44,30 +60,46 @@ func (t *manager) CanTransitionToStatus(actorKey actor.Key, status actor.Status)
 	return false
 }
 
-func (t *manager) GetTransitionCallbacks(actorKey actor.Key, currentStatus actor.Status, desiredStatus actor.Status) []Callback {
-	if _, ok := t.transitionCallbacksByActor[actorKey]; !ok {
-		t.transitionCallbacksByActor[actorKey] = CallbacksByStatus{}
+func (t *manager) GetTransitionActions(actorKey actor.Key, currentStatus actor.Status, desiredStatus actor.Status) []Action {
+	if _, ok := t.transitionActionsByActor[actorKey]; !ok {
+		return []Action{}
 	}
-	transitionCallbacks := t.transitionCallbacksByActor[actorKey]
+	transitionCallbacks := t.transitionActionsByActor[actorKey]
 	if _, ok := transitionCallbacks[currentStatus]; !ok {
-		transitionCallbacks[currentStatus] = map[actor.Status][]Callback{}
+		return []Action{}
 	}
 
-	return t.transitionCallbacksByActor[actorKey][currentStatus][desiredStatus]
+	return t.transitionActionsByActor[actorKey][currentStatus][desiredStatus]
 }
 
 func (t *manager) GetSubscriptionsForStatus(actorKey actor.Key, status actor.Status) []Subscription {
 	if _, ok := t.subscriptionsForActor[actorKey]; !ok {
-		t.subscriptionsForActor[actorKey] = SubscriptionsByStatus{}
+		return []Subscription{}
 	}
 	return t.subscriptionsForActor[actorKey][status]
 }
 
-func (t *manager) NotifyDependenciesOfStatus(actorKey actor.Key, newStatus actor.Status, notificationFunc func(actor.Key, actor.Status)) {
+func (t *manager) ClearSubscriptionsForStatus(actorKey actor.Key, status actor.Status) {
+	if _, ok := t.subscriptionsForActor[actorKey]; !ok {
+		return
+	}
+	delete(t.subscriptionsForActor[actorKey], status)
+}
+
+func (t *manager) GetDependenciesForStatus(actorKey actor.Key, newStatus actor.Status) []actor.Key {
+	var actorsToNotify []actor.Key
+	deps := t.reverseDependencies[actorKey][newStatus]
+	for depActorKey := range deps {
+		actorsToNotify = append(actorsToNotify, depActorKey)
+	}
+
+	return actorsToNotify
+}
+
+func (t *manager) ClearDependenciesForStatus(actorKey actor.Key, newStatus actor.Status) {
 	deps := t.reverseDependencies[actorKey][newStatus]
 	for depActorKey, depActorStatus := range deps {
 		delete(t.transitionDependenciesByActor[depActorKey][depActorStatus], actorKey)
-		notificationFunc(depActorKey, depActorStatus)
 	}
 	delete(t.reverseDependencies[actorKey], newStatus)
 }
@@ -128,13 +160,13 @@ func (t *manager) validateTransitionDependencies(srcActor actor.Key, srcStatus a
 	return nil
 }
 
-func (t *manager) AddTransitionCallback(actorKey actor.Key, srcStatus actor.Status, destStatus actor.Status, callback Callback) {
-	if _, ok := t.transitionCallbacksByActor[actorKey]; !ok {
-		t.transitionCallbacksByActor[actorKey] = CallbacksByStatus{}
+func (t *manager) AddTransitionAction(actorKey actor.Key, srcStatus actor.Status, destStatus actor.Status, callback Action) {
+	if _, ok := t.transitionActionsByActor[actorKey]; !ok {
+		t.transitionActionsByActor[actorKey] = ActionsByStatus{}
 	}
-	transitionCallbacks := t.transitionCallbacksByActor[actorKey]
+	transitionCallbacks := t.transitionActionsByActor[actorKey]
 	if _, ok := transitionCallbacks[srcStatus]; !ok {
-		transitionCallbacks[srcStatus] = map[actor.Status][]Callback{}
+		transitionCallbacks[srcStatus] = map[actor.Status][]Action{}
 	}
 	transitionCallbacks[srcStatus][destStatus] = append(transitionCallbacks[srcStatus][destStatus], callback)
 }
@@ -146,4 +178,26 @@ func (t *manager) Subscribe(actorKey actor.Key, status actor.Status, callback Su
 	subscriptionsByStatus := t.subscriptionsForActor[actorKey]
 
 	subscriptionsByStatus[status] = append(subscriptionsByStatus[status], callback)
+}
+
+func (t *manager) StartTransition(actorKey actor.Key, currentStatus actor.Status, desiredStatus actor.Status, f func(a Action)) {
+	actions := t.GetTransitionActions(actorKey, currentStatus, desiredStatus)
+	numActions := len(actions)
+	t.transitionsByActorChan[actorKey] = make(chan error, numActions)
+
+	for _, action := range actions {
+		f(action)
+	}
+}
+
+func (t *manager) CompleteTransitionAction(actorKey actor.Key, result error, resultFunc func(results chan error)) {
+	results := t.transitionsByActorChan[actorKey]
+	results <- result
+	// If the channel has all results, then execute resultFunc with the results.
+	if len(results) == cap(results) {
+		close(results)
+		delete(t.transitionsByActorChan, actorKey)
+
+		resultFunc(results)
+	}
 }

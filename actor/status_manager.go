@@ -36,10 +36,8 @@ func (a *statusManager) IsValidSubscriptionStatus(actorKey Key, status Status) b
 		return false
 	}
 	initialStatus := a.initialStatusByActor[actorKey]
-	if initialStatus == status {
-		return false
-	}
-	return true
+
+	return initialStatus != status
 }
 
 func (a *statusManager) IsValidTransitionStatus(actorKey Key, srcStatus Status, destStatus Status) bool {

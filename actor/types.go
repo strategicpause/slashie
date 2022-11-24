@@ -10,3 +10,7 @@ type Type string
 type Id string
 
 type Status string
+
+type Message func()
+
+type Mailbox chan Message
