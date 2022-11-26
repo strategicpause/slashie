@@ -56,7 +56,7 @@ func (s *stdOutLogger) Debug(message string) {
 }
 
 func (s *stdOutLogger) debug(file string, line int, message string) {
-	fmt.Printf("%s:%d %s", file, line, message)
+	fmt.Printf("%s:%d %s\n", file, line, message)
 }
 
 func (s *stdOutLogger) Info(message string) {

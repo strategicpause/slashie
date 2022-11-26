@@ -1,9 +1,10 @@
 package transition
 
 import (
+	"testing"
+
 	"github.com/strategicpause/slashie/actor"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 const (
@@ -48,49 +49,3 @@ func TestIsValidTransition(t *testing.T) {
 		})
 	}
 }
-
-type HasTransitionDependenciesTests struct {
-	actorKey actor.Key
-	status   actor.Status
-	msg      string
-	result   bool
-}
-
-func TestHasTransitionDependencies(t *testing.T) {
-	mgr := NewManager()
-	err := mgr.AddTransitionDependency(SrcActorKey, SrcStatus, DepActorKey, DepStatus)
-	assert.Nil(t, err)
-
-	tests := []*HasTransitionDependenciesTests{
-		{actorKey: InvalidActorKey, status: SrcStatus, result: false,
-			msg: "return false when no dependencies exist for the given actor"},
-		{actorKey: SrcActorKey, status: MissingStatus, result: false,
-			msg: "return false when no dependencies exist for the given status"},
-		{actorKey: SrcActorKey, status: SrcStatus, result: true,
-			msg: "return true when there are dependencies for the given actor & status"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.msg, func(t *testing.T) {
-			hasDependencies := mgr.HasTransitionDependencies(test.actorKey, test.status)
-			assert.Equal(t, test.result, hasDependencies)
-		})
-	}
-}
-
-//type GetTransitionActionsTest struct {
-//	actorKey       actor.Key
-//	srcStatus      actor.Status
-//	destStatus     actor.Status
-//	msg            string
-//	numTransitions int
-//}
-//
-//func TestGetTransitionActions(t *testing.T) {
-//	mgr := NewManager()
-//	mgr.AddTransitionAction(ActorKey, SrcStatus, DestStatus, func() error { return nil })
-//
-//	tests := []*GetTransitionActionsTest{
-//		{actorKey: },
-//	}
-//}

@@ -2,6 +2,7 @@ package slashie
 
 import (
 	"github.com/strategicpause/slashie/actor"
+	"github.com/strategicpause/slashie/subscription"
 	"github.com/strategicpause/slashie/transition"
 )
 
@@ -27,5 +28,5 @@ type Slashie interface {
 	GetStatus(actor actor.Actor) actor.Status
 	// Subscribe allows anyone to register a callback function to execute once the given actor has transitioned
 	// to the given status.
-	Subscribe(actor actor.Actor, status actor.Status, callback transition.Subscription) error
+	Subscribe(actor actor.Actor, status actor.Status, callback subscription.Subscription) error
 }

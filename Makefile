@@ -1,6 +1,6 @@
 default: release
 
-TEST_COVERAGE_THRESHOLD=91.6
+TEST_COVERAGE_THRESHOLD=91.9
 
 fmt:
 	@echo "Running go fmt"
@@ -21,7 +21,7 @@ tidy:
 
 test:
 	@echo "Running tests"
-	@go test -race --tags=integ ./...
+	@go test -race ./...
 
 coverage:
 	@TEST_COVERAGE=$$(go test  -coverpkg ./... | grep coverage | grep -Eo '[0-9]+\.[0-9]+') ;\

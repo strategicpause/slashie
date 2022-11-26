@@ -3,7 +3,9 @@ package slashie
 import (
 	"fmt"
 	"github.com/strategicpause/slashie/actor"
+	"github.com/strategicpause/slashie/dependency"
 	"github.com/strategicpause/slashie/logger"
+	"github.com/strategicpause/slashie/subscription"
 	"github.com/strategicpause/slashie/transition"
 )
 
@@ -12,11 +14,13 @@ const (
 )
 
 type slashie struct {
-	actorRegistry      actor.Registry
-	actorStatusManager actor.StatusManager
-	transitionManager  transition.Manager
-	logger             logger.Logger
-	mailbox            actor.Mailbox
+	actorRegistry       actor.Registry
+	actorStatusManager  actor.StatusManager
+	subscriptionManager subscription.Manager
+	transitionManager   transition.Manager
+	dependencyManager   dependency.Manager
+	logger              logger.Logger
+	mailbox             actor.Mailbox
 }
 
 type Opt func(s *slashie)
@@ -47,8 +51,14 @@ func NewSlashie(opts ...Opt) Slashie {
 	if s.actorStatusManager == nil {
 		s.actorStatusManager = actor.NewStatusManager()
 	}
+	if s.subscriptionManager == nil {
+		s.subscriptionManager = subscription.NewManager()
+	}
 	if s.transitionManager == nil {
 		s.transitionManager = transition.NewManager()
+	}
+	if s.dependencyManager == nil {
+		s.dependencyManager = dependency.NewManager()
 	}
 	if s.logger == nil {
 		s.logger = logger.NewNullOutputLogger()
@@ -98,6 +108,10 @@ func (s *slashie) updateStatus(actorKey actor.Key, desiredStatus actor.Status) e
 		return nil
 	}
 	currentKnownStatus := s.actorStatusManager.GetKnownStatus(actorKey)
+	if currentKnownStatus == desiredStatus {
+		s.logger.Debugf("%s known status is already set to %s. Skipping update.", actorKey, desiredStatus)
+		return nil
+	}
 	// Check to see if the current actor is already undergoing a transition. If so, then let's revisit this later.
 	if currentDesiredStatus != currentKnownStatus {
 		s.mailbox <- func() {
@@ -129,7 +143,7 @@ func (s *slashie) performTransition(actorKey actor.Key) {
 	desiredStatus := s.actorStatusManager.GetDesiredStatus(actorKey)
 	// This will check to see if the current actor has any dependencies that it must wait for to transition.
 	// If so, then this will block the current actor from transitioning to its desired status.
-	hasDependencies := s.transitionManager.HasTransitionDependencies(actorKey, desiredStatus)
+	hasDependencies := s.dependencyManager.HasTransitionDependencies(actorKey, desiredStatus)
 	if hasDependencies {
 		s.logger.Debugf("%s has a transition dependencies to %s", actorKey, desiredStatus)
 		return
@@ -170,26 +184,26 @@ func (s *slashie) completeAction(actorKey actor.Key, result error) {
 }
 
 func (s *slashie) updateKnownStatus(actorKey actor.Key, newStatus actor.Status) {
+	// Execute any subscriptions that are waiting for the actor to transition.
+	if a, ok := s.actorRegistry.GetActor(actorKey); ok {
+		s.subscriptionManager.HandleSubscriptionsForStatus(actorKey, newStatus, func(s subscription.Subscription) {
+			a.Notify(func() {
+				s()
+			})
+		})
+	}
+
 	s.logger.Debugf("Setting known status for %s to %s.", actorKey, newStatus)
 	s.actorStatusManager.SetKnownStatus(actorKey, newStatus)
-	// Now that the given actor has transitioned to the new status, we can execute any subscriptions that are waiting
-	// for the actor to transition.
-	subscriptions := s.transitionManager.GetSubscriptionsForStatus(actorKey, newStatus)
-	s.logger.Debugf("Found %d subscriptions for %s transitioning to %s.", len(subscriptions), actorKey, newStatus)
-	for _, subscription := range subscriptions {
-		subscription()
-	}
-	s.transitionManager.ClearSubscriptionsForStatus(actorKey, newStatus)
+
 	// Notify all dependencies that the current actor transitioned to the new status. This might result in other actors
 	// transitioning to their destination status.
-	depsToNotify := s.transitionManager.GetDependenciesForStatus(actorKey, newStatus)
-	s.transitionManager.ClearDependenciesForStatus(actorKey, newStatus)
-	for _, depToNotify := range depsToNotify {
+	s.dependencyManager.NotifyDependenciesOfStatus(actorKey, newStatus, func(depToNotify actor.Key) {
 		s.mailbox <- func() {
 			s.logger.Debugf("Notifying %s.", depToNotify)
 			s.performTransition(depToNotify)
 		}
-	}
+	})
 
 	terminalStatus := s.actorStatusManager.GetTerminalStatus(actorKey)
 	if newStatus == terminalStatus {
@@ -217,15 +231,14 @@ func (s *slashie) AddTransitionDependency(srcActor actor.Actor, srcStatus actor.
 			return
 		}
 
-		errChan <- s.transitionManager.AddTransitionDependency(srcKey, srcStatus, depKey, depStatus)
+		errChan <- s.dependencyManager.AddTransitionDependency(srcKey, srcStatus, depKey, depStatus)
 	}
 	return <-errChan
 }
 
 func (s *slashie) AddTransitionActions(actor actor.Actor, actions []*transition.TransitionAction) error {
 	for _, action := range actions {
-		err := s.AddTransitionAction(actor, action.SrcStatus, action.DestStatus, action.Action)
-		if err != nil {
+		if err := s.AddTransitionAction(actor, action.SrcStatus, action.DestStatus, action.Action); err != nil {
 			return err
 		}
 	}
@@ -238,8 +251,7 @@ func (s *slashie) AddTransitionAction(a actor.Actor, srcStatus actor.Status, des
 		defer close(errChan)
 		actorKey := a.GetKey()
 
-		isValid := s.actorStatusManager.IsValidTransitionStatus(actorKey, srcStatus, destStatus)
-		if !isValid {
+		if isValid := s.actorStatusManager.IsValidTransitionStatus(actorKey, srcStatus, destStatus); !isValid {
 			errChan <- fmt.Errorf("cannot transition from %s to %s", srcStatus, destStatus)
 			return
 		}
@@ -260,7 +272,7 @@ func (s *slashie) GetStatus(a actor.Actor) actor.Status {
 	return <-responseChan
 }
 
-func (s *slashie) Subscribe(a actor.Actor, status actor.Status, callback transition.Subscription) error {
+func (s *slashie) Subscribe(a actor.Actor, status actor.Status, callback subscription.Subscription) error {
 	errChan := make(chan error)
 	s.mailbox <- func() {
 		defer close(errChan)
@@ -272,7 +284,7 @@ func (s *slashie) Subscribe(a actor.Actor, status actor.Status, callback transit
 			return
 		}
 
-		s.transitionManager.Subscribe(actorKey, status, callback)
+		s.subscriptionManager.Subscribe(actorKey, status, callback)
 	}
 	return <-errChan
 }
