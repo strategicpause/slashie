@@ -10,7 +10,8 @@ type statusManager struct {
 	// desiredStatusByActor determines what status an Actor is attempting to transition to.
 	desiredStatusByActor map[Key]Status
 	// knownStatusByActor determines the current status of an Actor.
-	knownStatusByActor map[Key]Status
+	knownStatusByActor    map[Key]Status
+	previousStatusByActor map[Key]map[Status]interface{}
 }
 
 func NewStatusManager() StatusManager {
@@ -19,6 +20,7 @@ func NewStatusManager() StatusManager {
 		terminalStatusByActor: map[Key]Status{},
 		desiredStatusByActor:  map[Key]Status{},
 		knownStatusByActor:    map[Key]Status{},
+		previousStatusByActor: map[Key]map[Status]interface{}{},
 	}
 }
 
@@ -28,6 +30,8 @@ func (a *statusManager) InitializeActor(actorKey Key, initStatus Status, termina
 
 	a.desiredStatusByActor[actorKey] = initStatus
 	a.knownStatusByActor[actorKey] = initStatus
+
+	a.previousStatusByActor[actorKey] = map[Status]interface{}{}
 }
 
 func (a *statusManager) IsValidSubscriptionStatus(actorKey Key, status Status) bool {
@@ -35,9 +39,10 @@ func (a *statusManager) IsValidSubscriptionStatus(actorKey Key, status Status) b
 	if currentKnownStatus == status {
 		return false
 	}
-	initialStatus := a.initialStatusByActor[actorKey]
+	_, ok := a.previousStatusByActor[actorKey][status]
 
-	return initialStatus != status
+	return !ok
+
 }
 
 func (a *statusManager) IsValidTransitionStatus(actorKey Key, srcStatus Status, destStatus Status) bool {
@@ -58,6 +63,9 @@ func (a *statusManager) GetKnownStatus(actorKey Key) Status {
 }
 
 func (a *statusManager) SetKnownStatus(actorKey Key, status Status) {
+	previousKnownStatus := a.knownStatusByActor[actorKey]
+	a.previousStatusByActor[actorKey][previousKnownStatus] = struct{}{}
+
 	a.knownStatusByActor[actorKey] = status
 }
 

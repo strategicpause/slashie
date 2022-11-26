@@ -9,5 +9,6 @@ type Manager interface {
 	AddTransitionDependency(srcActor actor.Key, srcStatus actor.Status, depActor actor.Key, depStatus actor.Status) error
 	// HasTransitionDependencies returns true if the given actor has no dependencies on transitioning to the given status.
 	HasTransitionDependencies(actorKey actor.Key, status actor.Status) bool
+	// NotifyDependenciesOfStatus will
 	NotifyDependenciesOfStatus(actorKey actor.Key, newStatus actor.Status, callback func(actor.Key))
 }

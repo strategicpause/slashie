@@ -117,7 +117,7 @@ func (s *slashie) updateStatus(actorKey actor.Key, desiredStatus actor.Status) e
 		s.mailbox <- func() {
 			s.logger.Debugf("%s is already transition from %s to %s. Deferring update.", actorKey, currentKnownStatus, currentDesiredStatus)
 			if err := s.updateStatus(actorKey, desiredStatus); err != nil {
-				s.logger.Debugf("%s", err)
+				s.logger.Errorf("Could not update status %s for %s: %s", desiredStatus, actorKey, err)
 			}
 		}
 		return nil
@@ -145,13 +145,13 @@ func (s *slashie) performTransition(actorKey actor.Key) {
 	// If so, then this will block the current actor from transitioning to its desired status.
 	hasDependencies := s.dependencyManager.HasTransitionDependencies(actorKey, desiredStatus)
 	if hasDependencies {
-		s.logger.Debugf("%s has a transition dependencies to %s", actorKey, desiredStatus)
+		s.logger.Infof("%s has a transition dependencies to %s", actorKey, desiredStatus)
 		return
 	}
 
 	a, ok := s.actorRegistry.GetActor(actorKey)
 	if !ok {
-		s.logger.Debugf("could not find actor for %s", actorKey)
+		s.logger.Warnf("could not find actor %s", actorKey)
 		return
 	}
 
@@ -173,7 +173,7 @@ func (s *slashie) completeAction(actorKey actor.Key, result error) {
 			newStatus := s.actorStatusManager.GetDesiredStatus(actorKey)
 			for r := range results {
 				if r != nil {
-					s.logger.Debugf("%s", r)
+					s.logger.Errorf("There was an error running transition actions for actor %s: %s", actorKey, r)
 					newStatus = s.actorStatusManager.GetTerminalStatus(actorKey)
 					break
 				}
@@ -193,7 +193,7 @@ func (s *slashie) updateKnownStatus(actorKey actor.Key, newStatus actor.Status) 
 		})
 	}
 
-	s.logger.Debugf("Setting known status for %s to %s.", actorKey, newStatus)
+	s.logger.Infof("Setting known status for %s to %s.", actorKey, newStatus)
 	s.actorStatusManager.SetKnownStatus(actorKey, newStatus)
 
 	// Notify all dependencies that the current actor transitioned to the new status. This might result in other actors

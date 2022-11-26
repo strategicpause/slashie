@@ -5,10 +5,7 @@ import (
 	"github.com/strategicpause/slashie/actor"
 )
 
-// Dependencies
-type Dependencies map[actor.Status]map[actor.Key]actor.Status
-
-// ActorStatusKey
+// ActorStatusKey is used to determine if cycles exist in the dependency map.
 type ActorStatusKey struct {
 	actorKey actor.Key
 	status   actor.Status

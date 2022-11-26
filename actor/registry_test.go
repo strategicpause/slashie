@@ -37,3 +37,21 @@ func TestGetActor_NotRegistered(t *testing.T) {
 	assert.False(t, ok)
 	assert.Nil(t, a)
 }
+
+func TestIsRegistered(t *testing.T) {
+	registry := NewRegistry()
+	actor := NewBasicActor(ActorType, ActorId)
+	registry.RegisterActor(actor)
+
+	ok := registry.IsRegistered(actor)
+	assert.True(t, ok)
+}
+
+func TestIsRegistered_NotRegistered(t *testing.T) {
+	registry := NewRegistry()
+	actor := NewBasicActor(ActorType, ActorId)
+
+	ok := registry.IsRegistered(actor)
+
+	assert.False(t, ok)
+}

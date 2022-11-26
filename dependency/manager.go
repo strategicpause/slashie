@@ -6,18 +6,21 @@ import (
 )
 
 type manager struct {
-	// transitionDependenciesByActor has a structure of map[actor.Key][DesiredStatus][DependentActor][Status] and
+	// transitionDependenciesByActor has a structure of map[actor.Key][DesiredStatus][DependentActorKey][Status].
 	// A given actor cannot transition to the DesiredStatus until all DependentActors have transitioned
 	// to their given status. When all the transition dependencies for a given actor by state have been satisfied,
-	//then the callback will be called and removed from the map.
-	transitionDependenciesByActor map[actor.Key]Dependencies
-	// reverseDependencies
+	// then the actor can start to transition to the desired status.
+	transitionDependenciesByActor map[actor.Key]map[actor.Status]map[actor.Key]actor.Status
+	// reverseDependencies has a structure of map[actor.Key][KnownStatus][WaitingActor][DesiredStatus]. When a given
+	// actor transitions to its KnownStatus, then we can determine which other actors are waiting to transition to
+	// their desired status. This will be used with the transitionDependenciesByActor data structure to determine when
+	// to notify other actors when their dependencies have been satisfied and can begin the transitioning process.
 	reverseDependencies map[actor.Key]map[actor.Status]map[actor.Key]actor.Status
 }
 
 func NewManager() Manager {
 	return &manager{
-		transitionDependenciesByActor: map[actor.Key]Dependencies{},
+		transitionDependenciesByActor: map[actor.Key]map[actor.Status]map[actor.Key]actor.Status{},
 		reverseDependencies:           map[actor.Key]map[actor.Status]map[actor.Key]actor.Status{},
 	}
 }
@@ -30,12 +33,7 @@ func (t *manager) HasTransitionDependencies(actorKey actor.Key, status actor.Sta
 	if _, ok := transitionDependencies[status]; !ok {
 		return false
 	}
-	// There are still dependencies
-	if len(transitionDependencies[status]) > 0 {
-		return true
-	}
-
-	return false
+	return len(transitionDependencies[status]) > 0
 }
 
 func (t *manager) NotifyDependenciesOfStatus(actorKey actor.Key, newStatus actor.Status, callback func(actor.Key)) {
@@ -52,7 +50,7 @@ func (t *manager) NotifyDependenciesOfStatus(actorKey actor.Key, newStatus actor
 
 func (t *manager) AddTransitionDependency(srcActor actor.Key, srcStatus actor.Status, depActor actor.Key, depStatus actor.Status) error {
 	if _, ok := t.transitionDependenciesByActor[srcActor]; !ok {
-		t.transitionDependenciesByActor[srcActor] = Dependencies{}
+		t.transitionDependenciesByActor[srcActor] = map[actor.Status]map[actor.Key]actor.Status{}
 	}
 	transitionDependencies := t.transitionDependenciesByActor[srcActor]
 	if _, ok := transitionDependencies[srcStatus]; !ok {
@@ -77,6 +75,8 @@ func (t *manager) AddTransitionDependency(srcActor actor.Key, srcStatus actor.St
 	return err
 }
 
+// validateTransitionDependencies will perform a DFS to validate that no cycles exist. If a cycle is detected, then
+// an error will be returned.
 func (t *manager) validateTransitionDependencies(srcActor actor.Key, srcStatus actor.Status) error {
 	visited := map[string]bool{}
 	var queue []*ActorStatusKey

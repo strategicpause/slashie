@@ -39,7 +39,6 @@ func (t *manager) IsValidTransition(actorKey actor.Key, srcStatus actor.Status, 
 	}
 
 	_, ok := t.transitionActionsByActor[actorKey][srcStatus][destStatus]
-
 	return ok
 }
 
