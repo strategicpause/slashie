@@ -62,7 +62,10 @@ func (t *manager) StartTransition(actorKey actor.Key, currentStatus actor.Status
 }
 
 func (t *manager) CompleteTransitionAction(actorKey actor.Key, result error, resultFunc func(results chan error)) {
-	results := t.transitionsByActorChan[actorKey]
+	results, ok := t.transitionsByActorChan[actorKey]
+	if !ok {
+		return
+	}
 	results <- result
 	// If the channel has all results, then execute resultFunc with the results.
 	if len(results) == cap(results) {
