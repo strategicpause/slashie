@@ -1,6 +1,6 @@
 default: release
 
-TEST_COVERAGE_THRESHOLD=92.4
+TEST_COVERAGE_THRESHOLD=93.2
 
 fmt:
 	@echo "Running go fmt"
@@ -30,6 +30,11 @@ coverage:
 		exit 1 ;\
 	fi; \
 	echo "Current test coverage of $$TEST_COVERAGE%."
+
+coverage-report:
+	@go test -coverprofile=coverage.out ./...
+	@go tool cover -html=coverage.out
+
 
 release: fmt lint tidy test coverage
 	@echo "Build Successful."

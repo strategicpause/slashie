@@ -6,9 +6,10 @@ type Actor interface {
 	GetType() Type
 	// GetId returns the Id for an Actor. It is expected that Id is unique for a given Type of Actor.
 	GetId() Id
-	// GetKey will return the key for the given Actor
+	// GetKey will return the key for the given Actor which is a globally unique identifier. The Key is a composite
+	// of the actor Type and Id.
 	GetKey() Key
-	// Notify will send a message
+	// Notify will send a message to the given actor's Mailbox.
 	Notify(message Message)
 	// Init will initialize the event loop for handling messages that get sent to the actor's mailbox.
 	Init()

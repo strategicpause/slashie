@@ -2,6 +2,7 @@ package actor
 
 import (
 	"fmt"
+	"sync"
 )
 
 const (
@@ -13,6 +14,7 @@ type BasicActor struct {
 	actorId   Id
 	mailbox   Mailbox
 	stopChan  chan bool
+	wg        sync.WaitGroup
 }
 
 func NewBasicActor(actorType Type, actorId Id) *BasicActor {
@@ -20,9 +22,11 @@ func NewBasicActor(actorType Type, actorId Id) *BasicActor {
 		actorType: actorType,
 		actorId:   actorId,
 		mailbox:   make(Mailbox, DefaultMailBoxSize),
-		stopChan:  make(chan bool),
+		stopChan:  make(chan bool, 1),
+		wg:        sync.WaitGroup{},
 	}
 
+	ba.wg.Add(1)
 	go ba.Init()
 
 	return ba
@@ -59,6 +63,10 @@ func (ba *BasicActor) Notify(message Message) {
 func (ba *BasicActor) Stop() {
 	ba.mailbox <- func() {
 		ba.stopChan <- true
-		close(ba.mailbox)
+		ba.wg.Done()
 	}
+}
+
+func (ba *BasicActor) Wait() {
+	ba.wg.Wait()
 }

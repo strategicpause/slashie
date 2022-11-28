@@ -16,7 +16,7 @@ const (
 
 func TestAddTransitionDependency(t *testing.T) {
 	// Setup actors
-	tm := NewSlashie()
+	tm := NewSlashie(WithMailboxSize(DefaultMailboxSize))
 	srcActor := NewBasicActor("SourceActor", "ActorA", tm)
 	tm.AddActor(srcActor, NoneStatus, StoppedStatus)
 	depActor := NewBasicActor("DependentActor", "ActorB", tm)
