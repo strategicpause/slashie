@@ -4,7 +4,7 @@ TEST_COVERAGE_THRESHOLD=94.5
 
 fmt:
 	@echo "Running go fmt"
-	@go fmt
+	@gofmt -s -w .
 
 lint:
 	@if [ ! -d /tmp/golangci-lint ]; then \
@@ -34,7 +34,6 @@ coverage:
 coverage-report:
 	@go test -coverprofile=coverage.out ./...
 	@go tool cover -html=coverage.out
-
 
 release: fmt lint tidy test coverage
 	@echo "Build Successful."

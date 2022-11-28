@@ -30,7 +30,7 @@ type Registry interface {
 	IsRegistered(actor Actor) bool
 }
 
-// StatusManager keeps track of actor statues including the inital, terminal, desired, and known status.
+// StatusManager keeps track of actor statues including the initial, terminal, desired, and known status.
 type StatusManager interface {
 	// InitializeActor will set the initial and terminal status for the given actor. The desired and known status
 	// will both be set to the initial status.
