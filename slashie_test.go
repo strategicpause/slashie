@@ -3,6 +3,7 @@ package slashie
 import (
 	"errors"
 	"github.com/strategicpause/slashie/actor"
+	"github.com/strategicpause/slashie/transition"
 	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
@@ -276,5 +277,37 @@ func TestAddTransitionCallback_TermState(t *testing.T) {
 	basicActor := NewBasicActor("Actor", "ActorA", tm)
 
 	err := tm.AddTransitionAction(basicActor, StoppedStatus, NoneStatus, func() error { return nil })
+	assert.Error(t, err)
+}
+
+func TestAddTransitionActions(t *testing.T) {
+	tm := NewSlashie()
+	basicActor := NewBasicActor("Actor", "ActorA", tm)
+
+	err := tm.AddTransitionActions(basicActor, []*transition.TransitionAction{
+		{SrcStatus: NoneStatus, DestStatus: ReadyStatus, Action: func() error {
+			return nil
+		}},
+		{SrcStatus: ReadyStatus, DestStatus: StoppedStatus, Action: func() error {
+			return nil
+		}},
+	})
+
+	assert.Nil(t, err)
+}
+
+func TestAddTransitionActions_IllegalTransition(t *testing.T) {
+	tm := NewSlashie()
+	basicActor := NewBasicActor("Actor", "ActorA", tm)
+
+	err := tm.AddTransitionActions(basicActor, []*transition.TransitionAction{
+		{SrcStatus: NoneStatus, DestStatus: ReadyStatus, Action: func() error {
+			return nil
+		}},
+		{SrcStatus: ReadyStatus, DestStatus: NoneStatus, Action: func() error {
+			return nil
+		}},
+	})
+
 	assert.Error(t, err)
 }

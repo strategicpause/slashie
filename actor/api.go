@@ -15,6 +15,8 @@ type Actor interface {
 	Init()
 	// Stop will stop all event processing and kill the underlying goroutine.
 	Stop()
+	// Wait will block until the actor has stopped or reached its terminal status.
+	Wait()
 }
 
 // Registry is a central repository to register & fetch actors.
