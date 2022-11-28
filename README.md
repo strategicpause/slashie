@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/strategicpause/slashie)](https://goreportcard.com/report/github.com/strategicpause/slashie)
+
 # Slashie
 Slashie is an implementation of the actor model in Go in which a goroutine represents an actor. 
 Slashie allows users to configure transition rules for actors, including actions that must run before an actor can 
