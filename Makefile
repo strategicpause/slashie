@@ -1,6 +1,6 @@
 default: release
 
-TEST_COVERAGE_THRESHOLD=94.5
+TEST_COVERAGE_THRESHOLD=95.0
 
 fmt:
 	@echo "Running go fmt"

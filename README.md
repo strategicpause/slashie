@@ -1,12 +1,14 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/strategicpause/slashie)](https://goreportcard.com/report/github.com/strategicpause/slashie)
 
 # Slashie
-Slashie is an implementation of the actor model in Go in which a goroutine represents an actor. 
-Slashie allows users to configure transition rules for actors, including actions that must run before an actor can 
-transition to a desired state, and whether or not any other actors must first be in a given state before transitioning. 
-State management is centralized such that the actor graph and transition rules can be validated. Slashie is also the 
-name of the highly prestigious award given at the VH1 Fashion Awards to actor "slash" models (and not the other way 
-around).
+Slashie is an implementation of the actor model in Go in which a goroutine represents an actor. Slashie is also a 
+state machine library which also manages actor state and managing from one state to the next. Slashie allows users to 
+configure transition rules for actors, including actions that must run before an actor can transition to a desired 
+state, and whether or not any other actors must first be in a given state before transitioning. State management is 
+centralized such that the actor graph and transition rules can be validated. 
+
+Slashie is also the name of the highly prestigious award given at the VH1 Fashion Awards to actor "slash" models (and 
+not the other way around).
 
 # Tenets
 * **Testable first**. All code and functionality should be covered by unit tests to validate behavior. A feature is not
@@ -18,17 +20,30 @@ which utilize slashie.
 centralized such that the entire actor graph can be validated and optimal decisions can be made.
 
 # Actor Model
-An actor can make local decisions (ie: update local state), or send messages to other actors. One actor cannot mutate
-the state of another actor. Instead actors communicate by sending messages which may result in an actor taking some 
-action which may result in mutating its own local state.
+The actor model uses the actor as the basic primitive of concurrent computation. At the heart of an actor is an event
+loop which reads messages from a buffered channel which is referred to as a mailbox. When a message is read from a 
+mailbox, the actor is actually executing some function which could represent business logic that makes decisions (ie: 
+updates local state), performs some action in a larger workflow, sends notifications to other actors, or perhaps spawns 
+other actors. 
 
-When an actor receives a new message, it is queued in the mailbox which is represented as a Go buffered channel. As a
-result each actor will handle messages in the order that they are received. As a result actors don't have to use locks
-when mutating state.
+One actor cannot mutate the state of another actor. Instead actors communicate by sending messages to each other. When 
+an actor receives a new message, it is queued. As a result 
+each actor will handle exactly one message at a time in the order that they are received. By only handling one message 
+at a time, actors don't have to use synchronization mechanisms like locks or semaphores when mutating state.
 
-https://doc.akka.io/docs/akka/current/typed/guide/actors-intro.html
-https://en.wikipedia.org/wiki/Actor_model
-https://www.brianstorti.com/the-actor-model/
+Slashie represents an actor as a Goroutine which is either waiting for a message from the mailbox or executing a message. 
+When a message is received it will execute that function. The function could be a wrapper around a transition action,
+a subscription, or perhaps an arbitrary message which originates from another actor. The following sections talk more
+about features of slashie.
+
+# State Machine
+TODO
+
+## Status & Actions
+
+## Dependencies
+
+## Subscriptions
 
 # Usage
 ~~~~
@@ -84,7 +99,7 @@ make coverage-report
 ~~~~
 
 # TODO
-- Logging - Know when an actor wants to transition, has transitioned, is notifying dependencies, etc.
-- Message Passing - An actor should be able to pass a message to an arbitrary actor without having a reference to that actor.
-- Actor crash management - Can we recover? State persistence.
+- Actor crash management - Can we recover? State persistence. Provide interface in this package, but keep implementation in separate packages. This would allow us to easily switch implementation for different dbs such as etcd or BoltDb.
 - Expand to processes. Can we decouple actors from goroutines and extend the definition to processes? What about a process on a separate machine? 
+- Export to SVG. The ability to export the transition graph + dependencies to a visual representation.
+- Metrics observers. ie: Observer which runs every N seconds that provides mailbox size. Provide interface in main package, but implementation in separate package.

@@ -311,3 +311,48 @@ func TestAddTransitionActions_IllegalTransition(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+type testMessage struct {
+	message string
+}
+
+var testMessageType = testMessage{}
+
+func TestSendMessage(t *testing.T) {
+	tm := NewSlashie()
+	basicActor := NewBasicActor("Actor", "ActorA", tm)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	messageHandled := false
+	message := "TestMessage"
+	basicActor.RegisterMessageHandler(testMessageType, func(msg any) {
+		messageHandled = true
+		assert.Equal(t, message, msg.(testMessage).message)
+
+		wg.Done()
+	})
+
+	err := tm.SendMessage(basicActor.GetKey(), testMessage{message: message})
+	assert.Nil(t, err)
+
+	wg.Wait()
+	assert.True(t, messageHandled)
+}
+
+func TestSendMessage_ActorDoesNotExist(t *testing.T) {
+	tm := NewSlashie()
+
+	err := tm.SendMessage("unknownActor", testMessage{message: "message"})
+	assert.NotNil(t, err)
+
+}
+
+func TestSendMessage_InvalidType(t *testing.T) {
+	tm := NewSlashie()
+	basicActor := NewBasicActor("Actor", "ActorA", tm)
+
+	err := tm.SendMessage(basicActor.GetKey(), testMessage{message: "message"})
+	assert.NotNil(t, err)
+}

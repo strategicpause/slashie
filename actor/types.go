@@ -15,5 +15,11 @@ type Status string
 // Message represents some unit of computation that the actor processes.
 type Message func()
 
-// Mailbox is used to store incoming messages which are waiting to be processed.
-type Mailbox chan Message
+// messageType is used to register the Handler for the Message type.
+var messageType = Message(func() {})
+
+// mailbox is the internal mailbox type used to store incoming messages which are waiting to be processed.
+type mailbox chan any
+
+// Handler is a function which can process an incoming message to an actor.
+type Handler func(message any)

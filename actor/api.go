@@ -11,6 +11,11 @@ type Actor interface {
 	GetKey() Key
 	// Notify will send a message to the given actor's Mailbox.
 	Notify(message Message)
+	// RegisterMessageHandler will register a Handler function for a given message type.
+	RegisterMessageHandler(messageType any, handler Handler)
+	// SendMessage allows an actor to receive an arbitrary message. If the actor does not support the given message
+	// type, then an error will be returned.
+	SendMessage(message any) error
 	// Init will initialize the event loop for handling messages that get sent to the actor's mailbox.
 	Init()
 	// Stop will stop all event processing and kill the underlying goroutine.

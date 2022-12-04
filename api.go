@@ -29,4 +29,7 @@ type Slashie interface {
 	// Subscribe allows anyone to register a callback function to execute once the given actor has transitioned
 	// to the given status.
 	Subscribe(actor actor.Actor, status actor.Status, callback subscription.Subscription) error
+	// SendMessage provides the ability to send an arbitrary message to a given actor. If the actor does not support
+	// the given message type, an error will be returned.
+	SendMessage(actorKey actor.Key, message any) error
 }

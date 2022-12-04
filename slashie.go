@@ -13,6 +13,12 @@ const (
 	DefaultMailboxSize = 100
 )
 
+// message is the internal slashie type used to represent a slashie message.
+type message func()
+
+// mailbox is the internal slashie type used to represent the message mailbox.
+type mailbox chan message
+
 type slashie struct {
 	actorRegistry       actor.Registry
 	actorStatusManager  actor.StatusManager
@@ -20,14 +26,14 @@ type slashie struct {
 	transitionManager   transition.Manager
 	dependencyManager   dependency.Manager
 	logger              logger.Logger
-	mailbox             actor.Mailbox
+	mailbox             mailbox
 }
 
 type Opt func(s *slashie)
 
 func WithMailboxSize(size int) Opt {
 	return func(s *slashie) {
-		s.mailbox = make(actor.Mailbox, size)
+		s.mailbox = make(mailbox, size)
 	}
 }
 
@@ -64,7 +70,7 @@ func NewSlashie(opts ...Opt) Slashie {
 		s.logger = logger.NewNullOutputLogger()
 	}
 	if s.mailbox == nil {
-		s.mailbox = make(actor.Mailbox, DefaultMailboxSize)
+		s.mailbox = make(mailbox, DefaultMailboxSize)
 	}
 
 	go s.init()
@@ -81,6 +87,9 @@ func (s *slashie) init() {
 func (s *slashie) AddActor(actor actor.Actor, initStatus actor.Status, terminalStatus actor.Status) {
 	s.mailbox <- func() {
 		actorKey := s.actorRegistry.RegisterActor(actor)
+		/*actor.RegisterMessageHandler(subscription.SubscriptionType, func(s any) {
+			s.(subscription.Subscription)()
+		})*/
 		s.actorStatusManager.InitializeActor(actorKey, initStatus, terminalStatus)
 	}
 }
@@ -160,10 +169,10 @@ func (s *slashie) performTransition(actorKey actor.Key) {
 	// to the desiredStatus.
 	s.logger.Debugf("Starting transition for %s: %s -> %s", actorKey, knownStatus, desiredStatus)
 	s.transitionManager.StartTransition(actorKey, knownStatus, desiredStatus, func(action transition.Action) {
-		a.Notify(func() {
+		a.Notify(actor.Message(func() {
 			err := action()
 			s.completeAction(actorKey, err)
-		})
+		}))
 	})
 }
 
@@ -187,9 +196,10 @@ func (s *slashie) updateKnownStatus(actorKey actor.Key, newStatus actor.Status) 
 	// Execute any subscriptions that are waiting for the actor to transition.
 	if a, ok := s.actorRegistry.GetActor(actorKey); ok {
 		s.subscriptionManager.HandleSubscriptionsForStatus(actorKey, newStatus, func(s subscription.Subscription) {
-			a.Notify(func() {
+			//a.SendMessage(s)
+			a.Notify(actor.Message(func() {
 				s()
-			})
+			}))
 		})
 	}
 
@@ -285,6 +295,24 @@ func (s *slashie) Subscribe(a actor.Actor, status actor.Status, callback subscri
 		}
 
 		s.subscriptionManager.Subscribe(actorKey, status, callback)
+	}
+	return <-errChan
+}
+
+func (s *slashie) SendMessage(actorKey actor.Key, message any) error {
+	errChan := make(chan error)
+	s.mailbox <- func() {
+		defer close(errChan)
+
+		actor, ok := s.actorRegistry.GetActor(actorKey)
+		if !ok {
+			errChan <- fmt.Errorf("could not send message to %s: unknown actor", actorKey)
+			return
+		}
+		if err := actor.SendMessage(message); err != nil {
+			errChan <- fmt.Errorf("could not send message to %s: %s", actorKey, err)
+			return
+		}
 	}
 	return <-errChan
 }
