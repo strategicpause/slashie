@@ -2,21 +2,38 @@
 
 # Slashie
 Slashie is an implementation of the actor model in Go in which a goroutine represents an actor. Slashie is also a 
-state machine library which also manages actor state and managing from one state to the next. Slashie allows users to 
+state machine library which also manages actor status and managing from one status to the next. Slashie allows users to 
 configure transition rules for actors, including actions that must run before an actor can transition to a desired 
-state, and whether or not any other actors must first be in a given state before transitioning. State management is 
+status, and whether or not any other actors must first be in a given status before transitioning. Status management is 
 centralized such that the actor graph and transition rules can be validated. 
 
 Slashie is also the name of the highly prestigious award given at the VH1 Fashion Awards to actor "slash" models (and 
 not the other way around).
 
-# Tenets
-* **Testable first**. All code and functionality should be covered by unit tests to validate behavior. A feature is not
-considered done unless it has tests to validate behavior.
-* **Minimal Footprint & minimal dependencies**. Slashie will carefully evaluate the trade-offs of bringing in a new 
-dependency versus implementing it from scratch. Each dependency added becomes a dependency of all software packages
-which utilize slashie.
-* **Centralize Actor State**. Rather than having each actor maintain its own state, this information is instead 
+## Features
+* **Transitions**: An actor may behave differently based on its current status. Slashie allows users to define
+valid status transitions, and actions to take in order to reach that status.
+* **Dependencies**: In order for an actor to transition to a given status or status, it may depend on another actor
+transitioning to a given status. For example, maybe in order for an actor to communicate with a remote entity, networking
+must be setup first. Slashie allows users to establish dependencies before an actor is eligible to transition.
+* **Subscriptions**: An actor can subscribe a given actor transitioning to a given status. This results the subscribing
+actor receiving a message with some action to take.
+* **Centralized state**: Centralizing status & transition information allows slashie to make smart & efficient decisions.
+For example slashie can detect when adding a new dependency will introduce circular dependencies. Slashie will also be 
+able to notify an actor once all dependencies have transition to their target status.
+* **Message Passing**: Actors communicate by passing messages to one another. Slashie provides a mechanism to allow an
+arbitrary actor to send a message to another actor without requiring a direct reference to them.
+* **Tested**: Slashie has over 90% test coverage, including both unit & integration test coverage. This can provide
+immediate feedback to developers as to whether or not their feature is introducing any bugs or affects any behavior
+that users expect.
+
+## Tenets
+* **Testable first**. All code and functionality should will be covered by unit tests to validate behavior. A feature is 
+not considered done unless it has tests which demonstrate that the feature works.
+* **Minimal Footprint & minimal dependencies**. Slashie will favor not introducing a new dependency since any new 
+dependency now becomes a dependency of all software packages which utilize slashie. Functionality which is coupled to
+a specific dependency will live in a separate package from the core.
+* **Centralize Actor State**. Rather than having each actor maintain its own status, this information is instead 
 centralized such that the entire actor graph can be validated and optimal decisions can be made.
 
 # Actor Model
@@ -103,3 +120,7 @@ make coverage-report
 - Expand to processes. Can we decouple actors from goroutines and extend the definition to processes? What about a process on a separate machine? 
 - Export to SVG. The ability to export the transition graph + dependencies to a visual representation.
 - Metrics observers. ie: Observer which runs every N seconds that provides mailbox size. Provide interface in main package, but implementation in separate package.
+  - Time message spent in the mailbox queue. This will help tune mailbox sizes. A smaller mailbox may mean that
+messages don't received by an actor. A larger mailbox means that messages may wait longer in the mailbox. Measuring this will help determine what is acceptable.
+- Supervisor Tree - Have a parent get notified if a child actor fails. That way the parent can take some action like spin 
+up a new actor or change its own state.
